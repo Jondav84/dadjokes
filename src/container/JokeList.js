@@ -5,9 +5,65 @@ import axios from "axios";
 import Joke from "../components/Joke";
 import "./JokeList.css";
 
+// Separate functions for local storage
+const getLocalStorage = () => {
+  return JSON.parse(localStorage.getItem("jokes")) || [];
+};
+
+const setLocalStorage = (arr) => {
+  localStorage.setItem("jokes", JSON.stringify(arr));
+};
+
+// Function to add new jokes
+const addJokes = async (jokes, numJokesToGet) => {
+  const j = [...jokes];
+  const seenJokes = new Set();
+
+  try {
+    while (j.length < numJokesToGet) {
+      const res = await axios.get("https://icanhazdadjoke.com", {
+        headers: { Accept: "application/json" },
+      });
+      const { ...jokeObj } = res.data;
+
+      if (!seenJokes.has(jokeObj.id)) {
+        seenJokes.add(jokeObj.id);
+        j.push({ ...jokeObj, votes: 0, isLocked: false });
+      } else {
+        console.error("duplicate found!");
+      }
+    }
+
+    return j;
+  } catch (err) {
+    console.error(err);
+    return jokes; // Return the existing jokes in case of an error
+  }
+};
+
+// JokeList component
 function JokeList({ numJokesToGet = 5 }) {
-  const [jokes, setJokes] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [jokes, setJokes] = useState(getLocalStorage());
+  const [isLoading, setIsLoading] = useState(jokes.length < numJokesToGet);
+
+  useEffect(() => {
+    setLocalStorage(jokes);
+  }, [jokes]);
+
+  useEffect(() => {
+    if (jokes.length < numJokesToGet) {
+      setIsLoading(true);
+      addJokes(jokes, numJokesToGet)
+        .then((newJokes) => {
+          setJokes(newJokes);
+          setIsLoading(false);
+        })
+        .catch((err) => {
+          console.error(err);
+          setIsLoading(false);
+        });
+    }
+  }, [jokes, numJokesToGet]);
 
   const toggleLock = (id) => {
     setJokes((prevJokes) =>
@@ -18,67 +74,24 @@ function JokeList({ numJokesToGet = 5 }) {
     setLocalStorage(jokes); // Update local storage after toggling lock
   };
 
-  const getLocalStorage = () => {
-    return JSON.parse(localStorage.getItem("jokes"));
-  };
-
-  const setLocalStorage = (arr) => {
-    localStorage.setItem("jokes", JSON.stringify(arr));
-  };
-
-  function resetVotes() {
+  const resetVotes = () => {
     const resetJokes = jokes.map((j) => (j.isLocked ? j : { ...j, votes: 0 }));
     setJokes(resetJokes);
     setLocalStorage(resetJokes);
-  }
+  };
 
-  useEffect(() => {
-    setJokes(getLocalStorage());
-  }, []);
-
-  useEffect(
-    function () {
-      async function getJokes() {
-        let j = [...jokes];
-        let seenJokes = new Set();
-        try {
-          while (j.length < numJokesToGet) {
-            let res = await axios.get("https://icanhazdadjoke.com", {
-              headers: { Accept: "application/json" },
-            });
-            let { ...jokeObj } = res.data;
-
-            if (!seenJokes.has(jokeObj.id)) {
-              seenJokes.add(jokeObj.id);
-              j.push({ ...jokeObj, votes: 0, isLocked: false });
-            } else {
-              console.error("duplicate found!");
-            }
-          }
-          setJokes(j);
-          setIsLoading(false);
-        } catch (err) {
-          console.error(err);
-        }
-      }
-
-      if (jokes.length < numJokesToGet) getJokes();
-    },
-    [jokes, numJokesToGet]
-  );
-
-  function generateNewJokes() {
+  const generateNewJokes = () => {
     const lockedJokes = jokes.filter((j) => j.isLocked === true);
     setJokes(lockedJokes);
     setIsLoading(true);
-  }
+  };
 
-  function vote(id, delta) {
+  const vote = (id, delta) => {
     setJokes((allJokes) =>
       allJokes.map((j) => (j.id === id ? { ...j, votes: j.votes + delta } : j))
     );
     setLocalStorage(jokes);
-  }
+  };
 
   if (isLoading) {
     return (
@@ -89,8 +102,6 @@ function JokeList({ numJokesToGet = 5 }) {
   }
 
   let sortedJokes = [...jokes].sort((a, b) => b.votes - a.votes);
-  setLocalStorage(sortedJokes);
-
   const allJokesAreLocked = jokes.every((joke) => joke.isLocked);
 
   return (
